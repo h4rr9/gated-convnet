@@ -1,0 +1,8 @@
+# Don't track content of these folders
+checkpoints/
+graphs/
+__pycache__/
+
+# Compiled source #
+###################
+*.bin
