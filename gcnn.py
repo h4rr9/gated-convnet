@@ -56,13 +56,17 @@ class GatedConvNet:
 
     def model(self):
         block0 = layers.gate_block(
-            inputs=self.embed, k_size=4, n=1268, bottleneck=False, n_bottleneck=20, scope_name='block0')
-        block1 = layers.gate_block(
-            inputs=block0, k_size=4, n=1268, bottleneck=False, n_bottleneck=20, scope_name='block1')
-        block2 = layers.gate_block(
-            inputs=block1, k_size=4, n=1268, bottleneck=False, n_bottleneck=20, scope_name='block2')
-        block3 = layers.gate_block(
-            inputs=block2, k_size=4, n=1268, bottleneck=False, n_bottleneck=20, scope_name='block3')
+            inputs=self.embed, k_size=11, filters=512, scope_name='block0')
+
+        block1 = layers.gate_block_b(
+            inputs=block0, k_size=5, filters=512, bottleneck=128, scope_name='block1')
+
+        block2 = layers.gate_block_b(
+            inputs=block1, k_size=5, filters=512, bottleneck=256, scope_name='block2')
+
+        block3 = layers.gate_block_b(
+            inputs=block2, k_size=1, filters=2048, bottleneck=1024, scope_name='block3')
+
         flatten0 = layers.flatten(block3, scope_name='flatten0')
 
         norm0 = layers.l2_norm(
@@ -221,4 +225,4 @@ class GatedConvNet:
 if __name__ == '__main__':
     model = GatedConvNet()
     model.build()
-    model.train(n_epochs=50)
+    # model.train(n_epochs=50)
