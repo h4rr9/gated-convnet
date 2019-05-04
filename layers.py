@@ -35,13 +35,13 @@ def casual_conv(inputs, filters, k_size, strides, scope_name='casual_conv'):
 
 def sigmoid(inputs, scope_name='sigmoid'):
     with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
-        sigma = tf.math.sigmoid(inputs, name=scope.name + '_output')
+        sigma = tf.sigmoid(inputs, name=scope.name + '_output')
     return sigma
 
 
 def gate(input_1, input_2, scope_name='gated_linear'):
     with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
-        gate_output = tf.math.multiply(
+        gate_output = tf.multiply(
             input_1, sigmoid(input_2), name=scope.name + '_output')
     return gate_output
 
