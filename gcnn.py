@@ -19,9 +19,6 @@ class GatedConvNet:
         self.gstep = tf.get_variable('global_step',
                                      initializer=tf.constant_initializer(0),
                                      dtype=tf.int32, trainable=False, shape=[])
-        self.vstep = tf.get_variable('validation_step',
-                                     initializer=tf.constant_initializer(0),
-                                     dtype=tf.int32, trainable=False, shape=[])
         self.skip_step = 20
         self.training = False
         self.l2_constraint = 3
@@ -92,28 +89,27 @@ class GatedConvNet:
             self.loss = tf.reduce_mean(entropy, name='loss')
 
     def optimize(self):
-        with tf.name_scope('optimize'):
-            _opt = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate)
-            self.opt = _opt.minimize(self.loss, global_step=self.gstep)
+        _opt = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate)
+        self.opt = _opt.minimize(self.loss, global_step=self.gstep)
 
     def summaries(self):
-        with tf.name_scope('train_summaries'):
+        with tf.name_scope('train_summaries_batch'):
             train_loss = tf.summary.scalar('train_loss', self.loss)
             train_accuracy = tf.summary.scalar(
-                'train_accuracy', self.accuracy / self.batch_size)
+                'train_accuarcy', self.accuracy / self.batch_size)
             hist_train_loss = tf.summary.histogram(
                 'histogram_train_loss', self.loss)
             self.train_summary_op = tf.summary.merge(
                 [train_loss, train_accuracy, hist_train_loss])
 
-        with tf.name_scope('val_summaries'):
+        with tf.name_scope('val_summaries_batch'):
             val_loss = tf.summary.scalar('val_loss', self.loss)
-            val_summary = tf.summary.scalar(
-                'val_accuracy', self.accuracy / self.batch_size)
+            val_accuracy = tf.summary.scalar(
+                'val_accuarcy', self.accuracy / self.batch_size)
             hist_val_loss = tf.summary.histogram(
                 'histogram_val_loss', self.loss)
             self.val_summary_op = tf.summary.merge(
-                [val_loss, val_summary, hist_val_loss])
+                [val_loss, val_accuracy, hist_val_loss])
 
     def eval(self):
         with tf.name_scope('eval'):
@@ -122,20 +118,17 @@ class GatedConvNet:
                 tf.argmax(preds, 1), tf.argmax(self.label, 1))
             self.accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32))
 
-            self.increment_vstep = tf.assign_add(
-                self.vstep, 1, name='increment_vstep')
-
     def build(self):
 
         self.import_data()
-        self.get_embedding()
+        self.get_embeddings()
         self.model()
         self.loss()
         self.optimize()
         self.eval()
         self.summaries()
 
-    def train_one_epoch(self, sess, init, writer, epoch, step):
+    def train_one_epoch(self, sess, saver, init, writer, epoch, step):
         start_time = time.time()
         sess.run(init)
         self.training = True
@@ -146,20 +139,21 @@ class GatedConvNet:
         try:
             while True:
                 _, l, accuracy_batch, summaries = sess.run(
-                    [self.opt,
-                     self.loss,
-                     self.accuracy,
-                     self.train_summary_op])
+                    [self.opt, self.loss, self.accuracy, self.train_summary_op])
+
                 writer.add_summary(summaries, global_step=step)
 
                 if (step + 1) % self.skip_step == 0:
                     print('Loss at step {0}: {1}'.format(step, l))
-                step = step + 1
-                total_correct_preds = total_correct_preds + accuracy_batch
-                total_loss = total_loss + l
-                n_batches = n_batches + 1
+
+                total_loss += l
+                total_correct_preds += accuracy_batch
+                step += 1
+                n_batches += 1
         except tf.errors.OutOfRangeError:
             pass
+
+        saver.save(sess, PATH_CHECKPOINTS + '/model', step)
 
         print('\nAverage training loss at epoch {0}: {1}'.format(
             epoch, total_loss / n_batches))
@@ -169,7 +163,7 @@ class GatedConvNet:
 
         return step
 
-    def eval_once(self, sess, saver, init, writer, epoch, val_step):
+    def eval_once(self, sess, init, writer, epoch, step):
         start_time = time.time()
         sess.run(init)
         self.training = False
@@ -178,17 +172,15 @@ class GatedConvNet:
         n_batches = 0
         try:
             while True:
-                _, l, accuracy_batch, summaries = sess.run(
-                    [self.increment_vstep, self.loss, self.accuracy, self.val_summary_op])
-                writer.add_summary(summaries, global_step=val_step)
+                l, accuracy_batch, summaries = sess.run(
+                    [self.loss, self.accuracy, self.val_summary_op])
+                writer.add_summary(summaries, global_step=step)
                 total_correct_preds = total_correct_preds + accuracy_batch
-                total_loss = total_loss + l
-                n_batches = n_batches + 1
-                val_step = val_step + 1
+                total_loss += + l
+                n_batches += + 1
+                step += + 1
         except tf.errors.OutOfRangeError:
             pass
-
-        saver.save(sess, PATH_CHECKPOINTS + '/model', self.gstep)
 
         print('Average validation loss at epoch {0}: {1}'.format(
             epoch, total_loss / n_batches))
@@ -196,12 +188,12 @@ class GatedConvNet:
             epoch, total_correct_preds / self.n_test))
         print('Took: {0} seconds\n'.format(time.time() - start_time))
 
-        return val_step
+        return step
 
     def train(self, n_epochs):
+
         utils.mkdir_safe(os.path.dirname(PATH_CHECKPOINTS))
         utils.mkdir_safe(PATH_CHECKPOINTS)
-
         train_writer = tf.summary.FileWriter(
             PATH_GRAPHS + '/train', tf.get_default_graph())
 
@@ -211,22 +203,23 @@ class GatedConvNet:
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver()
-            ckpt = tf.train.get_checkpoint_state(PATH_CHECKPOINTS)
 
-            if ckpt and ckpt.model_checkpoint_path:
-                saver.restore(sess, ckpt.model_checkpoint_path)
+            # ckpt = tf.train.get_checkpoint_state(PATH_CHECKPOINTS))
+
+            # if ckpt and ckpt.model_checkpoint_path:
+            #     saver.restore(sess, ckpt.model_checkpoint_path)
 
             step = self.gstep.eval()
-            val_step = self.vstep.eval()
+            val_step = 0
 
             for epoch in range(n_epochs):
                 step = self.train_one_epoch(
-                    sess, self.train_init, train_writer, epoch, step)
+                    sess, saver, self.train_init, train_writer, epoch, step)
                 val_step = self.eval_once(
-                    sess, saver, self.val_init, val_writer, epoch, val_step)
+                    sess, self.val_init, val_writer, epoch, val_step)
 
-        train_writer.close()
-        val_writer.close()
+            train_writer.close()
+            val_writer.close()
 
 
 if __name__ == '__main__':
