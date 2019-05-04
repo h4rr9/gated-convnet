@@ -62,13 +62,13 @@ class GatedConvNet:
         block0 = layers.gate_block(
             inputs=self.embed, k_size=4, filters=1268, scope_name='block0')
 
-        block1 = layers.gate_block_b(
-            inputs=block0, k_size=4, filters=1268, scope_name='block1')
+        # block1 = layers.gate_block(
+        #     inputs=block0, k_size=4, filters=1268, scope_name='block1')
 
-        block2 = layers.gate_block_b(
-            inputs=block1, k_size=4, filters=1268, scope_name='block2')
+        # block2 = layers.gate_block(
+        #     inputs=block1, k_size=4, filters=1268, scope_name='block2')
 
-        flatten0 = layers.flatten(block2, scope_name='flatten0')
+        flatten0 = layers.flatten(block0, scope_name='flatten0')
 
         norm0 = layers.l2_norm(
             flatten0, alpha=self.l2_constraint, scope_name='norm0')

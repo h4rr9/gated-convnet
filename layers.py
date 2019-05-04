@@ -117,7 +117,7 @@ def one_maxpool(inputs, stride, padding='VALID', scope_name='pool'):
     return pool
 
 
-def fully_connexcted(inputs, out_dim, scope_name='fc'):
+def fully_connected(inputs, out_dim, scope_name='fc'):
     with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
         in_dim = inputs.shape[-1]
 
