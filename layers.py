@@ -85,10 +85,10 @@ def gate_block_b(inputs, k_size, filters, bottleneck, scope_name='gate_b'):
                             k_size=1, strides=1, padding='VALID', scope_name='conv1d_red')
 
         A = casual_conv(inputs=red_inputs, filters=bottleneck, k_size=k_size,
-                            strides=1, scope_name='convA')
+                        strides=1, scope_name='convA')
 
         B = casual_conv(inputs=red_inputs, filters=bottleneck, k_size=k_size,
-                            strides=1, scope_name='convB')
+                        strides=1, scope_name='convB')
 
         gate_output = gate(A, B)
 
@@ -101,7 +101,23 @@ def gate_block_b(inputs, k_size, filters, bottleneck, scope_name='gate_b'):
     return output
 
 
-def fully_connected(inputs, out_dim, scope_name='fc'):
+def one_maxpool(inputs, stride, padding='VALID', scope_name='pool'):
+    with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
+
+        _inputs = tf.expand_dims(inputs, axis=1)
+        height, width = _inputs.shape[-2:]
+
+        _pool = tf.nn.max_pool(_inputs,
+                               ksize=[1, 1, height, 1],
+                               strides=[1, 1, stride, 1],
+                               padding=padding,
+                               name=scope.name)
+        pool = tf.squeeze(_pool, axis=1)
+
+    return pool
+
+
+def fully_connexcted(inputs, out_dim, scope_name='fc'):
     with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
         in_dim = inputs.shape[-1]
 

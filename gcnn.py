@@ -5,6 +5,10 @@ import os
 import layers
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+PATH_CHECKPOINTS = './checkpoints'
+# PATH_CHECKPOINTS = '/scratch/scratch5/harig/gcnn_sub/checkpoints'
+PATH_GRAPHS = './graphs'
+# PATH_GRAPHS = '/scratch/scratch5/harig/gcnn_sub/graphs'
 
 
 class GatedConvNet:
@@ -56,18 +60,15 @@ class GatedConvNet:
 
     def model(self):
         block0 = layers.gate_block(
-            inputs=self.embed, k_size=11, filters=512, scope_name='block0')
+            inputs=self.embed, k_size=4, filters=1268, scope_name='block0')
 
         block1 = layers.gate_block_b(
-            inputs=block0, k_size=5, filters=512, bottleneck=128, scope_name='block1')
+            inputs=block0, k_size=4, filters=1268, scope_name='block1')
 
         block2 = layers.gate_block_b(
-            inputs=block1, k_size=5, filters=512, bottleneck=256, scope_name='block2')
+            inputs=block1, k_size=4, filters=1268, scope_name='block2')
 
-        block3 = layers.gate_block_b(
-            inputs=block2, k_size=1, filters=2048, bottleneck=1024, scope_name='block3')
-
-        flatten0 = layers.flatten(block3, scope_name='flatten0')
+        flatten0 = layers.flatten(block2, scope_name='flatten0')
 
         norm0 = layers.l2_norm(
             flatten0, alpha=self.l2_constraint, scope_name='norm0')
@@ -152,7 +153,7 @@ class GatedConvNet:
         except tf.errors.OutOfRangeError:
             pass
 
-        saver.save(sess, './checkpoints/gcnn_sub/sub_gcnn', step)
+        saver.save(sess, PATH_CHECKPOINTS + '/model', step)
 
         print('\nAverage training loss at epoch {0}: {1}'.format(
             epoch, total_loss / n_batches))
@@ -191,20 +192,19 @@ class GatedConvNet:
 
     def train(self, n_epochs):
 
-        utils.mkdir_safe('./checkpoints')
-        utils.mkdir_safe('./checkpoints/gcc_sub')
+        utils.mkdir_safe(os.path.dirname(PATH_CHECKPOINTS))
+        utils.mkdir_safe(PATH_CHECKPOINTS)
         train_writer = tf.summary.FileWriter(
-            './graphs/gcnn/train', tf.get_default_graph())
+            PATH_GRAPHS + '/train', tf.get_default_graph())
 
         val_writer = tf.summary.FileWriter(
-            './graphs/gcnn/val')
+            PATH_GRAPHS + '/val')
 
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver()
 
-            # ckpt = tf.train.get_checkpoint_state(os.path.dirname(
-            #     './checkpoints/gcnn_sub/sub_gcnn/checkpoint'))
+            # ckpt = tf.train.get_checkpoint_state(PATH_CHECKPOINTS))
 
             # if ckpt and ckpt.model_checkpoint_path:
             #     saver.restore(sess, ckpt.model_checkpoint_path)
@@ -225,4 +225,4 @@ class GatedConvNet:
 if __name__ == '__main__':
     model = GatedConvNet()
     model.build()
-    # model.train(n_epochs=50)
+    model.train(n_epochs=100)
