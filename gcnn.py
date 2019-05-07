@@ -10,23 +10,28 @@ PATH_CHECKPOINTS = './checkpoints'
 PATH_GRAPHS = './graphs'
 # PATH_GRAPHS = '/scratch/scratch5/harig/gcnn_sub/graphs'
 
+config = tf.ConfigProto()
+config.intra_op_parallelism_threads = 4
+config.inter_op_parallelism_threads = 4
+
 
 class GatedConvNet:
 
     def __init__(self):
         self.batch_size = 50
         self.learning_rate = 1
+        self.l2_constraint = 3
         self.gstep = tf.get_variable('global_step',
                                      initializer=tf.constant_initializer(0),
                                      dtype=tf.int32, trainable=False, shape=[])
         self.vstep = tf.get_variable('validation_step',
                                      initializer=tf.constant_initializer(0),
                                      dtype=tf.int32, trainable=False, shape=[])
+        self.n_classes = 2
         self.skip_step = 20
         self.training = False
-        self.l2_constraint = 3
         self.keep_prob = 0.5
-        self.n_classes = 2
+        self.best_acc = 0
 
     def import_data(self):
         train, val = utils.load_subjectivity_data()
@@ -50,7 +55,7 @@ class GatedConvNet:
         self.train_init = iterator.make_initializer(train_data)
         self.val_init = iterator.make_initializer(val_data)
 
-    def get_embeddings(self):
+    def get_embedding(self):
         with tf.name_scope('embed'):
             embedding_matrix = utils.load_embeddings_subjectivity()
             _embed = tf.constant(embedding_matrix)
@@ -63,21 +68,15 @@ class GatedConvNet:
 
     def model(self):
         block0 = layers.gate_block(
-            inputs=self.embed, k_size=4, filters=1268, scope_name='block0')
+            inputs=self.embed, k_size=7, filters=100, scope_name='block0')
 
-        # block1 = layers.gate_block(
-        #     inputs=block0, k_size=4, filters=1268, scope_name='block1')
+        pool0 = layers.one_maxpool(
+            inputs=block0, stride=1, padding='VALID', scope_name='pool0')
 
-        # block2 = layers.gate_block(
-        #     inputs=block1, k_size=4, filters=1268, scope_name='block2')
-
-        flatten0 = layers.flatten(block0, scope_name='flatten0')
-
-        norm0 = layers.l2_norm(
-            flatten0, alpha=self.l2_constraint, scope_name='norm0')
+        flatten0 = layers.flatten(pool0, scope_name='flatten0')
 
         dropout0 = layers.Dropout(
-            inputs=norm0, rate=1 - self.keep_prob, scope_name='dropout0')
+            inputs=flatten0, rate=1 - self.keep_prob, scope_name='dropout0')
 
         self.logits_train = layers.fully_connected(
             inputs=dropout0, out_dim=self.n_classes, scope_name='fc0')
@@ -89,11 +88,17 @@ class GatedConvNet:
         with tf.name_scope('loss'):
             entropy = tf.nn.softmax_cross_entropy_with_logits(
                 labels=self.label, logits=self.logits_train)
-            self.loss = tf.reduce_mean(entropy, name='loss')
+            loss = tf.reduce_mean(entropy, name='loss')
+
+            vars = [v for v in tf.trainable_variables() if 'fc' in v.name]
+
+            l2_norm = tf.add_n([tf.nn.l2_loss(v) for v in vars])
+            self.loss = loss + self.l2_constraint * l2_norm
 
     def optimize(self):
         with tf.name_scope('optimize'):
-            _opt = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate)
+            _opt = tf.train.AdadeltaOptimizer(
+                learning_rate=self.learning_rate)
             self.opt = _opt.minimize(self.loss, global_step=self.gstep)
 
     def summaries(self):
@@ -128,7 +133,7 @@ class GatedConvNet:
     def build(self):
 
         self.import_data()
-        self.get_embeddings()
+        self.get_embedding()
         self.model()
         self.loss()
         self.optimize()
@@ -169,7 +174,7 @@ class GatedConvNet:
 
         return step
 
-    def eval_once(self, sess, saver, init, writer, epoch, val_step):
+    def eval_once(self, sess, best_saver, saver, init, writer, epoch, val_step):
         start_time = time.time()
         sess.run(init)
         self.training = False
@@ -188,6 +193,14 @@ class GatedConvNet:
         except tf.errors.OutOfRangeError:
             pass
 
+        if self.best_acc < total_correct_preds / self.n_test:
+            print('\nSaving best accuracy: {0} from {1}\n'.format(
+                total_correct_preds / self.n_test, self.best_acc))
+            self.best_acc = total_correct_preds / self.n_test
+            best_saver.save(sess, PATH_CHECKPOINTS + '/best_model', self.gstep)
+        else:
+            print('\nBest Accuracy unchanged from : {0}\n'.format(
+                self.best_acc))
         saver.save(sess, PATH_CHECKPOINTS + '/model', self.gstep)
 
         print('Average validation loss at epoch {0}: {1}'.format(
@@ -208,9 +221,10 @@ class GatedConvNet:
         val_writer = tf.summary.FileWriter(
             PATH_GRAPHS + '/val')
 
-        with tf.Session() as sess:
+        with tf.Session(config=config) as sess:
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver()
+            best_saver = tf.train.Saver(max_to_keep=1)
             ckpt = tf.train.get_checkpoint_state(PATH_CHECKPOINTS)
 
             if ckpt and ckpt.model_checkpoint_path:
@@ -223,7 +237,7 @@ class GatedConvNet:
                 step = self.train_one_epoch(
                     sess, self.train_init, train_writer, epoch, step)
                 val_step = self.eval_once(
-                    sess, saver, self.val_init, val_writer, epoch, val_step)
+                    sess, best_saver, saver, self.val_init, val_writer, epoch, val_step)
 
         train_writer.close()
         val_writer.close()
@@ -232,4 +246,4 @@ class GatedConvNet:
 if __name__ == '__main__':
     model = GatedConvNet()
     model.build()
-    model.train(n_epochs=5)
+    model.train(n_epochs=100)
