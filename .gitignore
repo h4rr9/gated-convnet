@@ -2,6 +2,7 @@
 checkpoints/
 graphs/
 __pycache__/
+best_weights/
 
 # Compiled source #
 ###################
